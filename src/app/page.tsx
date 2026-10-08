@@ -1,69 +1,107 @@
-import Image from "next/image";
+'use strict';
+'use client';
 
-export default function Home() {
+import { useChat } from 'ai/react';
+import { Send, User, Sparkles } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+
+export default function Chat() {
+  const { messages, input, handleInputChange, handleSubmit, error } = useChat();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, error]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="flex flex-col h-[100dvh] bg-gradient-to-br from-[#fdfbfb] to-[#ebedee] text-gray-800 font-sans">
+      {/* Sticky Header with Glassmorphism */}
+      <header className="sticky top-0 z-10 backdrop-blur-md bg-white/40 border-b border-white/60 shadow-sm p-4 flex items-center justify-center">
+        <Sparkles className="w-5 h-5 text-amber-500 mr-2" />
+        <h1 className="text-xl font-semibold bg-gradient-to-r from-amber-500 to-yellow-600 bg-clip-text text-transparent">
+          Golden Glass AI
+        </h1>
+      </header>
+
+      {/* Chat Area */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-6">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-70">
+            <div className="p-4 rounded-full bg-white/50 shadow-inner">
+              <Sparkles className="w-12 h-12 text-amber-500" />
+            </div>
+            <p className="text-lg">How can I assist you today?</p>
+          </div>
+        )}
+        
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            className={`flex w-full ${
+              m.role === 'user' ? 'justify-end' : 'justify-start'
+            }`}
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+            <div
+              className={`max-w-[85%] p-4 rounded-2xl shadow-sm backdrop-blur-md border ${
+                m.role === 'user'
+                  ? 'bg-amber-500/10 border-amber-500/20 rounded-br-sm text-gray-900'
+                  : 'bg-white/60 border-white/80 rounded-bl-sm text-gray-800'
+              }`}
+            >
+              <div className="flex items-center mb-2 space-x-2">
+                {m.role === 'user' ? (
+                  <>
+                    <User className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-medium text-amber-600 uppercase tracking-wider">You</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-yellow-600" />
+                    <span className="text-xs font-medium text-yellow-600 uppercase tracking-wider">AI</span>
+                  </>
+                )}
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                {m.content}
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {/* Error Handling */}
+        {error && (
+          <div className="flex w-full justify-center">
+            <div className="bg-red-500/10 border border-red-500/20 text-red-600 p-3 rounded-xl text-sm font-medium shadow-sm backdrop-blur-md">
+              API ledu ra laude !
+            </div>
+          </div>
+        )}
+        
+        <div ref={messagesEndRef} />
       </main>
+
+      {/* Input Area */}
+      <footer className="p-4 bg-white/40 backdrop-blur-md border-t border-white/60">
+        <form
+          onSubmit={handleSubmit}
+          className="flex items-center gap-2 max-w-4xl mx-auto relative"
+        >
+          <input
+            className="flex-1 p-4 pr-14 rounded-full bg-white/70 border border-white/80 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white transition-all"
+            value={input}
+            placeholder="Type your message..."
+            onChange={handleInputChange}
+          />
+          <button
+            type="submit"
+            disabled={!input.trim()}
+            className="absolute right-2 p-3 bg-gradient-to-r from-amber-400 to-amber-500 text-white rounded-full shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            aria-label="Send message"
+          >
+            <Send className="w-5 h-5 ml-0.5" />
+          </button>
+        </form>
+      </footer>
     </div>
   );
 }
