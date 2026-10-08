@@ -2,11 +2,27 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { Send, User, Sparkles } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Send, User, Sparkles, Settings2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+
+const FREE_MODELS = [
+  { id: 'openrouter/auto', name: 'OpenRouter Auto (Free)' },
+  { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Llama 3 8B (Free)' },
+  { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Free)' },
+  { id: 'google/gemma-7b-it:free', name: 'Gemma 7B (Free)' }
+];
 
 export default function Chat() {
-  const { messages, input, handleInputChange, handleSubmit, error } = useChat();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState(FREE_MODELS[0].id);
+  const [systemInstruction, setSystemInstruction] = useState('You are a helpful and polite AI assistant.');
+
+  const { messages, input, handleInputChange, handleSubmit, error } = useChat({
+    body: {
+      model: selectedModel,
+      systemInstruction
+    }
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -14,14 +30,57 @@ export default function Chat() {
   }, [messages, error]);
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gradient-to-br from-[#fdfbfb] to-[#ebedee] text-gray-800 font-sans">
+    <div className="flex flex-col h-[100dvh] bg-gradient-to-br from-[#fdfbfb] to-[#ebedee] text-gray-800 font-sans relative">
       {/* Sticky Header with Glassmorphism */}
-      <header className="sticky top-0 z-10 backdrop-blur-md bg-white/40 border-b border-white/60 shadow-sm p-4 flex items-center justify-center">
-        <Sparkles className="w-5 h-5 text-amber-500 mr-2" />
-        <h1 className="text-xl font-semibold bg-gradient-to-r from-amber-500 to-yellow-600 bg-clip-text text-transparent">
-          Golden Glass AI
-        </h1>
+      <header className="sticky top-0 z-20 backdrop-blur-md bg-white/40 border-b border-white/60 shadow-sm p-4 flex items-center justify-between">
+        <div className="flex items-center">
+          <Sparkles className="w-5 h-5 text-amber-500 mr-2" />
+          <h1 className="text-xl font-semibold bg-gradient-to-r from-amber-500 to-yellow-600 bg-clip-text text-transparent">
+            Golden Glass AI
+          </h1>
+        </div>
+        <button 
+          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+          className="p-2 rounded-full hover:bg-white/50 transition-colors shadow-sm backdrop-blur-md border border-white/60 text-amber-600"
+          aria-label="Settings"
+        >
+          <Settings2 className="w-5 h-5" />
+        </button>
       </header>
+
+      {/* Settings Panel Overlay */}
+      {isSettingsOpen && (
+        <div className="absolute top-[65px] left-0 right-0 z-10 p-4 bg-white/80 backdrop-blur-xl border-b border-white shadow-lg animate-in slide-in-from-top-2">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Settings</h2>
+              <button onClick={() => setIsSettingsOpen(false)} className="text-gray-500 hover:text-gray-800"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-600 block">AI Model</label>
+              <select 
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="w-full p-2.5 rounded-xl bg-white/50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm shadow-inner transition-all"
+              >
+                {FREE_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-600 block">System Instructions</label>
+              <textarea 
+                value={systemInstruction}
+                onChange={(e) => setSystemInstruction(e.target.value)}
+                rows={3}
+                className="w-full p-3 rounded-xl bg-white/50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm shadow-inner transition-all resize-none"
+                placeholder="Tell the AI how it should behave..."
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat Area */}
       <main className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -31,6 +90,7 @@ export default function Chat() {
               <Sparkles className="w-12 h-12 text-amber-500" />
             </div>
             <p className="text-lg">How can I assist you today?</p>
+            <p className="text-sm text-gray-500 px-8">Using OpenRouter Free Tier. Tap the settings gear to customize model and instructions.</p>
           </div>
         )}
         
@@ -81,7 +141,7 @@ export default function Chat() {
       </main>
 
       {/* Input Area */}
-      <footer className="p-4 bg-white/40 backdrop-blur-md border-t border-white/60">
+      <footer className="p-4 bg-white/40 backdrop-blur-md border-t border-white/60 z-10">
         <form
           onSubmit={handleSubmit}
           className="flex items-center gap-2 max-w-4xl mx-auto relative"

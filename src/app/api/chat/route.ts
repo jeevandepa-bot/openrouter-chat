@@ -12,14 +12,15 @@ const openrouter = createOpenAI({
 
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
+    const { messages, model, systemInstruction } = await req.json();
 
     if (!process.env.OPENROUTER_API_KEY) {
        return new Response(JSON.stringify({ error: "API ledu ra laude !" }), { status: 500 });
     }
 
-    const result = streamText({
-      model: openrouter('openrouter/free'),
+    const result = await streamText({
+      model: openrouter(model || 'openrouter/free'),
+      system: systemInstruction || undefined,
       messages,
     });
 
