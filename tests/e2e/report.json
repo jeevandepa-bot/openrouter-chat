@@ -1,0 +1,268 @@
+{
+  "timestamp": "2026-10-08T09:34:38.279Z",
+  "mode": "hermetic",
+  "suites": [
+    {
+      "key": "ac1",
+      "name": "AC1: GitHub Verification Suite",
+      "passed": true,
+      "durationMs": 100,
+      "tests": [
+        {
+          "name": "AC1.1 - GitHub Authentication",
+          "passed": true,
+          "details": "Authenticated as test-agent-user (ID: 98765432)"
+        },
+        {
+          "name": "AC1.2 - Create Private Repository",
+          "passed": true,
+          "details": "Created repo test-agent-user/test-e2e-repo-1791452078303 (Private: true)"
+        },
+        {
+          "name": "AC1.3 - Write Text File to Repo",
+          "passed": true,
+          "details": "Wrote greeting.txt (SHA: 8e4a6c67...)"
+        },
+        {
+          "name": "AC1.4 - Read Text File Back",
+          "passed": true,
+          "details": "Read greeting.txt verified (Bytes: 57)"
+        },
+        {
+          "name": "AC1.5 - Automatic SHA Resolution & File Update",
+          "passed": true,
+          "details": "Successfully resolved SHA and committed updated content"
+        },
+        {
+          "name": "AC1.6 - Repository Listing Verification",
+          "passed": true,
+          "details": "Found test-e2e-repo-1791452078303 in user repository list"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "ac2",
+      "name": "AC2: Sandbox Verification Suite",
+      "passed": true,
+      "durationMs": 179,
+      "tests": [
+        {
+          "name": "AC2.1 - Cross-Origin Isolation Headers in next.config.ts",
+          "passed": true,
+          "details": "COEP: require-corp, COOP: same-origin"
+        },
+        {
+          "name": "AC2.2 - WebContainer Boot Readiness & Singleton Lifecycle",
+          "passed": true,
+          "details": "Runtime booted into \"ready\" state; singleton memoization verified"
+        },
+        {
+          "name": "AC2.3 - Virtual Filesystem Server Script Creation",
+          "passed": true,
+          "details": "Wrote and verified server.js in virtual filesystem"
+        },
+        {
+          "name": "AC2.4 - Process Spawn & Server-Ready Event Capture",
+          "passed": true,
+          "details": "Captured server-ready on port 3000 (URL: http://127.0.0.1:3000)"
+        },
+        {
+          "name": "AC2.5 - Local HTTP Response & Payload Assertion",
+          "passed": true,
+          "details": "HTTP 200 OK received: {\"status\":\"ok\",\"message\":\"Hello from WebContainer Sandbox!\",\"runtime\":\"node-sandbox\",\"timestamp\":1791452078500}"
+        },
+        {
+          "name": "AC2.6 - Process Teardown & Resource Cleanup",
+          "passed": true,
+          "details": "Server process killed and resources freed cleanly"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "ac3",
+      "name": "AC3: Agent Workflow Suite",
+      "passed": true,
+      "durationMs": 210,
+      "tests": [
+        {
+          "name": "AC3.1 - Prompt Emission: Dual GitHub & Sandbox Tool Calls",
+          "passed": true,
+          "details": "Emitted GitHub call (githubCreateRepo: name=\"test\") and Sandbox call (sandboxWriteFile)"
+        },
+        {
+          "name": "AC3.2 - Zod Schema Validation for Tool Arguments",
+          "passed": true,
+          "details": "Validated tool arguments conform to strict Zod interface contracts"
+        },
+        {
+          "name": "AC3.3 - Autonomous Multi-Tool Execution & Real World Outcome",
+          "passed": true,
+          "details": "Repo \"test\" created in GitHub and hello world executed in Sandbox with completed states"
+        },
+        {
+          "name": "AC3.4 - Tool Segregation: GitHub-Only Intent",
+          "passed": true,
+          "details": "Correctly routed to GitHub tool without spurious Sandbox calls"
+        },
+        {
+          "name": "AC3.5 - Tool Segregation: Sandbox-Only Intent",
+          "passed": true,
+          "details": "Correctly routed to Sandbox tool without spurious GitHub calls"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "tier1",
+      "name": "Tier 1: Feature Coverage Suite",
+      "passed": true,
+      "durationMs": 197,
+      "tests": [
+        {
+          "name": "Tier 1 - COOP/COEP Security Headers",
+          "passed": true,
+          "details": "Verified require-corp and same-origin"
+        },
+        {
+          "name": "Tier 1 - GitHub User Auth & Identity",
+          "passed": true,
+          "details": "Validated test-agent-user"
+        },
+        {
+          "name": "Tier 1 - GitHub Repo Creation & Metadata Retrieval",
+          "passed": true,
+          "details": "Created and fetched repo"
+        },
+        {
+          "name": "Tier 1 - GitHub File Create & Read Operations",
+          "passed": true,
+          "details": "Verified src/app.js write/read cycle"
+        },
+        {
+          "name": "Tier 1 - Virtual Filesystem (FS) Operations",
+          "passed": true,
+          "details": "Verified writeFile, readFile, readdir, rm"
+        },
+        {
+          "name": "Tier 1 - Process Spawning & Stream Output",
+          "passed": true,
+          "details": "Spawned echo and captured stream"
+        },
+        {
+          "name": "Tier 1 - AI SDK Tool Schemas Validation",
+          "passed": true,
+          "details": "All 10 tool schemas passed validation"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "tier2",
+      "name": "Tier 2: Boundary & Corner Cases Suite",
+      "passed": true,
+      "durationMs": 315,
+      "tests": [
+        {
+          "name": "Tier 2 - GitHub 401 Bad Credentials Rejection",
+          "passed": true,
+          "details": "Correctly rejected invalid token"
+        },
+        {
+          "name": "Tier 2 - GitHub 422 Duplicate Repo Rejection",
+          "passed": true,
+          "details": "Correctly rejected duplicate repository name"
+        },
+        {
+          "name": "Tier 2 - GitHub 404 Not Found Verification",
+          "passed": true,
+          "details": "Correctly handled nonexistent repo and file with 404"
+        },
+        {
+          "name": "Tier 2 - Base64 Encoding Unicode & Multiline Fidelity",
+          "passed": true,
+          "details": "Successfully round-tripped multibyte unicode string"
+        },
+        {
+          "name": "Tier 2 - Sandbox Script Syntax Error & Non-Zero Exit",
+          "passed": true,
+          "details": "Captured error stream (exitCode: 1)"
+        },
+        {
+          "name": "Tier 2 - Zod Schema Rejection on Malformed Inputs",
+          "passed": true,
+          "details": "Strict schema successfully blocked invalid tool arguments"
+        },
+        {
+          "name": "Tier 2 - Agent Autonomous Error Capture & Isolation",
+          "passed": true,
+          "details": "Tool failure was captured and isolated cleanly without crashing harness"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "tier3",
+      "name": "Tier 3: Cross-Feature Interactions Suite",
+      "passed": true,
+      "durationMs": 365,
+      "tests": [
+        {
+          "name": "Tier 3 - Full Roundtrip: GitHub -> Sandbox -> Output -> GitHub Commit",
+          "passed": true,
+          "details": "Successfully executed cross-feature workflow and verified committed report"
+        },
+        {
+          "name": "Tier 3 - Tool Invocation State Transition & Result Binding",
+          "passed": true,
+          "details": "All tool invocations transitioned properly with valid result payloads"
+        },
+        {
+          "name": "Tier 3 - Multi-Turn Conversational Tool Coordination",
+          "passed": true,
+          "details": "Successfully coordinated independent intents across conversational turns"
+        }
+      ],
+      "error": null
+    },
+    {
+      "key": "tier4",
+      "name": "Tier 4: Real-World Workloads Suite",
+      "passed": true,
+      "durationMs": 393,
+      "tests": [
+        {
+          "name": "Tier 4 - Modular Multi-File Project Scaffolding & Execution",
+          "passed": true,
+          "details": "Successfully resolved modular imports (src/utils.js -> src/main.js) and executed cleanly"
+        },
+        {
+          "name": "Tier 4 - High-Volume Rapid Sequential Commits & SHA Integrity",
+          "passed": true,
+          "details": "Successfully executed 5 consecutive commits with verified readback"
+        },
+        {
+          "name": "Tier 4 - Large Payload (50KB+) Buffer & Base64 Fidelity",
+          "passed": true,
+          "details": "Successfully transferred and verified 80889 bytes without truncation"
+        },
+        {
+          "name": "Tier 4 - Multi-Step Autonomous Loop Hard Ceiling (maxSteps: 10)",
+          "passed": true,
+          "details": "Enforced maxSteps hard limit preventing unbounded tool recursion"
+        }
+      ],
+      "error": null
+    }
+  ],
+  "summary": {
+    "totalSuites": 7,
+    "passedSuites": 7,
+    "failedSuites": 0,
+    "totalTests": 38,
+    "passedTests": 38,
+    "failedTests": 0,
+    "durationMs": 1787
+  }
+}

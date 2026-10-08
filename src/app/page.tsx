@@ -1,167 +1,626 @@
-'use strict';
 'use client';
 
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useChat } from 'ai/react';
-import { Send, User, Sparkles, Settings2, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Header } from '@/components/Header';
+import { TabNavigation, type WorkspaceTab } from '@/components/TabNavigation';
+import { ChatPanel } from '@/components/ChatPanel';
+import { CodeEditor } from '@/components/CodeEditor';
+import { Terminal, type TerminalLogEntry } from '@/components/Terminal';
+import { Preview } from '@/components/Preview';
+import { VerificationSuite } from '@/components/VerificationSuite';
+import { SettingsModal } from '@/components/SettingsModal';
+import { getClientToolExecutors } from '@/lib/tools';
+import {
+  getWebContainer,
+  onServerReady,
+  writeFile as writeSandboxFile,
+  readFile as readSandboxFile,
+  readdir as readdirSandbox,
+  spawn as spawnSandboxProcess,
+} from '@/lib/webcontainer';
+import { validateAuth } from '@/lib/github';
+import type { SandboxStatus } from '@/types/sandbox';
+import type { GitHubUser } from '@/types/github';
 
-const FREE_MODELS = [
-  { id: 'openrouter/auto', name: 'OpenRouter Auto (Free)' },
-  { id: 'meta-llama/llama-3-8b-instruct:free', name: 'Llama 3 8B (Free)' },
-  { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Free)' },
-  { id: 'google/gemma-7b-it:free', name: 'Gemma 7B (Free)' }
-];
-
-export default function Chat() {
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(FREE_MODELS[0].id);
-  const [systemInstruction, setSystemInstruction] = useState('You are a helpful and polite AI assistant.');
-
-  const { messages, input, handleInputChange, handleSubmit, error } = useChat({
-    body: {
-      model: selectedModel,
-      systemInstruction
-    }
-  });
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+export default function CloudCodingWorkspace() {
+  // --------------------------------------------------------------------------
+  // 1. Navigation & Responsive Layout State
+  // --------------------------------------------------------------------------
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('chat');
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('code'); // for desktop right pane
+  const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, error]);
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // 2. Settings & Credentials State
+  // --------------------------------------------------------------------------
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [githubToken, setGithubToken] = useState('');
+  const [tokenStorage, setTokenStorage] = useState<'localStorage' | 'sessionStorage'>('localStorage');
+  const [openrouterKey, setOpenrouterKey] = useState('');
+  const [selectedModel, setSelectedModel] = useState('openrouter/auto');
+  const [systemInstruction, setSystemInstruction] = useState(
+    'You are an autonomous cloud coding AI agent capable of managing GitHub repositories and executing code in an in-browser WebContainer sandbox.'
+  );
+  const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
+
+  // Load credentials on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const timer = setTimeout(() => {
+      try {
+        const storedStorage = (localStorage.getItem('token_storage') as 'localStorage' | 'sessionStorage') || 'localStorage';
+        setTokenStorage(storedStorage);
+
+        const storage = storedStorage === 'sessionStorage' ? sessionStorage : localStorage;
+        const savedToken = storage.getItem('github_pat') || localStorage.getItem('github_pat') || '';
+        const savedOrKey = storage.getItem('openrouter_key') || localStorage.getItem('openrouter_key') || '';
+        const savedModel = localStorage.getItem('selected_model') || 'openrouter/auto';
+        const savedSys = localStorage.getItem('system_instruction') || '';
+
+        if (savedToken) {
+          setGithubToken(savedToken);
+          validateAuth(savedToken)
+            .then((u) => setGithubUser(u))
+            .catch(() => setGithubUser(null));
+        }
+        if (savedOrKey) setOpenrouterKey(savedOrKey);
+        if (savedModel) setSelectedModel(savedModel);
+        if (savedSys) setSystemInstruction(savedSys);
+      } catch {
+        // Storage access blocked or restricted
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleSaveSettings = (settings: {
+    githubToken: string;
+    tokenStorage: 'localStorage' | 'sessionStorage';
+    openrouterKey: string;
+    selectedModel: string;
+    systemInstruction: string;
+  }) => {
+    setGithubToken(settings.githubToken);
+    setTokenStorage(settings.tokenStorage);
+    setOpenrouterKey(settings.openrouterKey);
+    setSelectedModel(settings.selectedModel);
+    setSystemInstruction(settings.systemInstruction);
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('token_storage', settings.tokenStorage);
+        localStorage.setItem('selected_model', settings.selectedModel);
+        localStorage.setItem('system_instruction', settings.systemInstruction);
+
+        const targetStorage = settings.tokenStorage === 'sessionStorage' ? sessionStorage : localStorage;
+        const otherStorage = settings.tokenStorage === 'sessionStorage' ? localStorage : sessionStorage;
+
+        otherStorage.removeItem('github_pat');
+        otherStorage.removeItem('openrouter_key');
+
+        if (settings.githubToken) targetStorage.setItem('github_pat', settings.githubToken);
+        else targetStorage.removeItem('github_pat');
+
+        if (settings.openrouterKey) targetStorage.setItem('openrouter_key', settings.openrouterKey);
+        else targetStorage.removeItem('openrouter_key');
+      } catch {
+        // Storage unavailable
+      }
+    }
+
+    if (settings.githubToken) {
+      validateAuth(settings.githubToken)
+        .then((u) => setGithubUser(u))
+        .catch(() => setGithubUser(null));
+    } else {
+      setGithubUser(null);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 3. WebContainer Sandbox State & Lifecycle
+  // --------------------------------------------------------------------------
+  const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus>('uninitialized');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewPort, setPreviewPort] = useState<number | null>(null);
+  const [isStartingDemo, setIsStartingDemo] = useState(false);
+
+  // Terminal Logs State
+  const [terminalLogs, setTerminalLogs] = useState<TerminalLogEntry[]>([]);
+  const [isTerminalRunning, setIsTerminalRunning] = useState(false);
+
+  const appendTerminalLog = useCallback(
+    (text: string, type: 'stdout' | 'stderr' | 'system' | 'command' = 'stdout') => {
+      setTerminalLogs((prev) => [
+        ...prev,
+        {
+          id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          type,
+          text,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    []
+  );
+
+  // Filesystem State for CodeEditor
+  const [sandboxFiles, setSandboxFiles] = useState<Array<{ path: string; isDir?: boolean }>>([]);
+  const [currentFilePath, setCurrentFilePath] = useState<string>('');
+  const [fileContent, setFileContent] = useState<string>('');
+
+  const refreshSandboxFiles = useCallback(async () => {
+    if (typeof window === 'undefined' || sandboxStatus !== 'ready') return;
+    try {
+      const entries = await readdirSandbox('/', { withFileTypes: true });
+      const mapped = (entries as Array<{ name: string; isDirectory: () => boolean } | string>).map(
+        (ent) => {
+          if (typeof ent === 'string') {
+            return { path: ent, isDir: false };
+          }
+          return { path: ent.name, isDir: ent.isDirectory() };
+        }
+      );
+      setSandboxFiles(mapped);
+
+      // If no file currently selected, select first text file
+      if (mapped.length > 0 && !currentFilePath) {
+        const firstFile = mapped.find((f) => !f.isDir) || mapped[0];
+        setCurrentFilePath(firstFile.path);
+        try {
+          const content = await readSandboxFile(firstFile.path);
+          setFileContent(content);
+        } catch {
+          setFileContent('');
+        }
+      }
+    } catch {
+      // Readdir error
+    }
+  }, [sandboxStatus, currentFilePath]);
+
+  // Boot WebContainer on mount (or manual trigger)
+  const initWebContainer = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+    try {
+      setSandboxStatus('booting');
+      appendTerminalLog('Booting WebContainer browser sandbox singleton...', 'system');
+      await getWebContainer();
+      setSandboxStatus('ready');
+      appendTerminalLog('WebContainer booted and ready (Cross-Origin Isolated).', 'system');
+
+      // Subscribe to server-ready
+      onServerReady((port, url) => {
+        appendTerminalLog(`[server-ready] Live HTTP server detected on port ${port} (${url})`, 'system');
+        setPreviewPort(port);
+        setPreviewUrl(url);
+      });
+
+      // Populate file tree
+      await refreshSandboxFiles();
+    } catch (err) {
+      setSandboxStatus('error');
+      const msg = err instanceof Error ? err.message : String(err);
+      appendTerminalLog(`[WebContainer Boot Error]: ${msg}`, 'stderr');
+    }
+  }, [appendTerminalLog, refreshSandboxFiles]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      initWebContainer();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initWebContainer]);
+
+  // --------------------------------------------------------------------------
+  // 4. Client Tool Invocations Interceptor (Vercel AI SDK Bridge)
+  // --------------------------------------------------------------------------
+  const executedToolCallsRef = useRef<Set<string>>(new Set());
+
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+    error,
+    addToolResult,
+    setMessages,
+    setInput,
+  } = useChat({
+    headers: {
+      'x-github-token': githubToken,
+      ...(openrouterKey ? { 'x-openrouter-key': openrouterKey } : {}),
+    },
+    body: {
+      model: selectedModel,
+      systemInstruction,
+    },
+    maxSteps: 10,
+  });
+
+  // Watch messages for pending client sandbox tool invocations
+  useEffect(() => {
+    const handleClientTools = async () => {
+      const executors = getClientToolExecutors();
+
+      for (const msg of messages) {
+        if (!msg.toolInvocations) continue;
+
+        for (const invocation of msg.toolInvocations) {
+          const { toolCallId, toolName, args } = invocation;
+
+          // Process tool calls that are in 'call' state and not yet executed
+          if (
+            invocation.state === 'call' &&
+            !executedToolCallsRef.current.has(toolCallId)
+          ) {
+            executedToolCallsRef.current.add(toolCallId);
+
+            try {
+              appendTerminalLog(`Executing client tool: ${toolName}...`, 'system');
+              let toolResult: unknown;
+
+              switch (toolName) {
+                case 'bootSandbox': {
+                  toolResult = await executors.bootSandbox(args as never);
+                  setSandboxStatus('ready');
+                  break;
+                }
+                case 'sandboxWriteFile': {
+                  const writeArgs = args as { path: string; content: string };
+                  toolResult = await executors.sandboxWriteFile(writeArgs);
+                  appendTerminalLog(`[FS] Wrote ${writeArgs.content.length} bytes to ${writeArgs.path}`, 'stdout');
+                  await refreshSandboxFiles();
+                  break;
+                }
+                case 'sandboxReadFile': {
+                  const readArgs = args as { path: string };
+                  toolResult = await executors.sandboxReadFile(readArgs);
+                  appendTerminalLog(`[FS] Read file ${readArgs.path}`, 'stdout');
+                  break;
+                }
+                case 'sandboxRunCommand': {
+                  const runArgs = args as { command: string; args?: string[] };
+                  appendTerminalLog(`$ ${runArgs.command} ${(runArgs.args || []).join(' ')}`, 'command');
+                  toolResult = await executors.sandboxRunCommand(runArgs);
+                  const out = (toolResult as { output: string }).output;
+                  if (out) appendTerminalLog(out, 'stdout');
+                  break;
+                }
+                case 'sandboxStartServer': {
+                  const serverArgs = args as { script?: string; port?: number };
+                  toolResult = await executors.sandboxStartServer(serverArgs);
+                  appendTerminalLog(
+                    `[Server Started] Port: ${serverArgs.port || 3000}`,
+                    'system'
+                  );
+                  break;
+                }
+                default:
+                  // Other tools executed server-side
+                  continue;
+              }
+
+              // Return execution result to agent loop
+              addToolResult({
+                toolCallId,
+                result: toolResult,
+              });
+              appendTerminalLog(`Client tool ${toolName} completed successfully.`, 'system');
+            } catch (toolErr) {
+              const errMsg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+              appendTerminalLog(`[Tool Error] ${toolName}: ${errMsg}`, 'stderr');
+              addToolResult({
+                toolCallId,
+                result: { error: errMsg, success: false },
+              });
+            }
+          }
+        }
+      }
+    };
+
+    handleClientTools();
+  }, [messages, addToolResult, appendTerminalLog, refreshSandboxFiles]);
+
+  // --------------------------------------------------------------------------
+  // 5. Code Editor Handlers
+  // --------------------------------------------------------------------------
+  const handleSelectFile = async (path: string) => {
+    setCurrentFilePath(path);
+    try {
+      const content = await readSandboxFile(path);
+      setFileContent(content);
+    } catch {
+      setFileContent('');
+    }
+  };
+
+  const handleSaveFile = async (path: string, newContent: string) => {
+    await writeSandboxFile(path, newContent);
+    setFileContent(newContent);
+    appendTerminalLog(`[FS Saved] Updated ${path}`, 'system');
+    await refreshSandboxFiles();
+  };
+
+  const handleCreateFile = async (path: string) => {
+    await writeSandboxFile(path, '');
+    setCurrentFilePath(path);
+    setFileContent('');
+    appendTerminalLog(`[FS Created] File /${path}`, 'system');
+    await refreshSandboxFiles();
+  };
+
+  const handleRunFile = async (path: string) => {
+    try {
+      setIsTerminalRunning(true);
+      appendTerminalLog(`$ node ${path}`, 'command');
+      // If mobile, switch to terminal tab so user sees output
+      if (!isDesktop) setActiveTab('terminal');
+      else setWorkspaceTab('terminal');
+
+      const proc = await spawnSandboxProcess('node', [path]);
+      const reader = proc.output.getReader();
+
+      const readLoop = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) appendTerminalLog(value, 'stdout');
+        }
+      };
+      readLoop().catch(() => {});
+
+      const exitCode = await proc.exit;
+      appendTerminalLog(`Process exited with code ${exitCode}`, exitCode === 0 ? 'system' : 'stderr');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendTerminalLog(`Run error: ${msg}`, 'stderr');
+    } finally {
+      setIsTerminalRunning(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 6. Terminal Handlers
+  // --------------------------------------------------------------------------
+  const handleRunTerminalCommand = async (commandLine: string) => {
+    try {
+      setIsTerminalRunning(true);
+      appendTerminalLog(commandLine, 'command');
+
+      const parts = commandLine.trim().split(/\s+/);
+      const cmd = parts[0];
+      const args = parts.slice(1);
+
+      const proc = await spawnSandboxProcess(cmd, args);
+      const reader = proc.output.getReader();
+
+      const readLoop = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) appendTerminalLog(value, 'stdout');
+        }
+      };
+      readLoop().catch(() => {});
+
+      const exitCode = await proc.exit;
+      appendTerminalLog(`Exited (${exitCode})`, exitCode === 0 ? 'system' : 'stderr');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendTerminalLog(`Command execution failed: ${msg}`, 'stderr');
+    } finally {
+      setIsTerminalRunning(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 7. Preview Demo Server Helper
+  // --------------------------------------------------------------------------
+  const handleStartDemoServer = async () => {
+    setIsStartingDemo(true);
+    try {
+      const serverCode = `const http = require('http');
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end('<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem;background:#0f172a;color:#f8fafc;text-align:center;">' +
+    '<h1 style="color:#a855f7;">Hello from WebContainer Sandbox!</h1>' +
+    '<p>Live in-browser Node.js HTTP server responding on port 3000.</p>' +
+    '<div style="background:#1e293b;padding:1rem;border-radius:0.5rem;display:inline-block;margin-top:1rem;">' +
+    'Status: 🟢 Operational | Timestamp: ' + new Date().toLocaleTimeString() +
+    '</div></body></html>');
+});
+server.listen(3000, () => {
+  console.log('Demo server active on http://localhost:3000');
+});`;
+
+      await writeSandboxFile('server.js', serverCode);
+      appendTerminalLog('[Demo] Wrote server.js to sandbox filesystem.', 'system');
+      await spawnSandboxProcess('node', ['server.js']);
+      appendTerminalLog('[Demo] Spawning server.js on port 3000...', 'system');
+      await refreshSandboxFiles();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendTerminalLog(`Failed to start demo server: ${msg}`, 'stderr');
+    } finally {
+      setIsStartingDemo(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 8. Quick Prompt Helper
+  // --------------------------------------------------------------------------
+  const handleSelectQuickPrompt = (promptText: string) => {
+    setInput(promptText);
+    // If mobile and on another tab, switch to chat
+    if (!isDesktop) setActiveTab('chat');
+  };
+
+  // Render workspace content for a given tab
+  const renderTabContent = (tab: WorkspaceTab) => {
+    switch (tab) {
+      case 'chat':
+        return (
+          <ChatPanel
+            messages={messages}
+            input={input}
+            handleInputChange={handleInputChange}
+            handleSubmit={handleSubmit}
+            isLoading={isLoading}
+            error={error}
+            onSelectPrompt={handleSelectQuickPrompt}
+            onClearChat={() => setMessages([])}
+            hasGithubToken={Boolean(githubToken)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        );
+      case 'code':
+        return (
+          <CodeEditor
+            files={sandboxFiles}
+            currentFilePath={currentFilePath}
+            fileContent={fileContent}
+            onSelectFile={handleSelectFile}
+            onSaveFile={handleSaveFile}
+            onCreateFile={handleCreateFile}
+            onRunFile={handleRunFile}
+            onRefreshFiles={refreshSandboxFiles}
+            sandboxReady={sandboxStatus === 'ready'}
+          />
+        );
+      case 'terminal':
+        return (
+          <Terminal
+            logs={terminalLogs}
+            onClear={() => setTerminalLogs([])}
+            onRunCommand={handleRunTerminalCommand}
+            isRunning={isTerminalRunning}
+          />
+        );
+      case 'preview':
+        return (
+          <Preview
+            url={previewUrl}
+            port={previewPort}
+            onReload={() => {}}
+            onStartDemoServer={handleStartDemoServer}
+            isStartingDemo={isStartingDemo}
+          />
+        );
+      case 'verify':
+        return (
+          <VerificationSuite
+            githubToken={githubToken}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onAppendTerminalLog={appendTerminalLog}
+          />
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gradient-to-br from-[#fdfbfb] to-[#ebedee] text-gray-800 font-sans relative">
-      {/* Sticky Header with Glassmorphism */}
-      <header className="sticky top-0 z-20 backdrop-blur-md bg-white/40 border-b border-white/60 shadow-sm p-4 flex items-center justify-between">
-        <div className="flex items-center">
-          <Sparkles className="w-5 h-5 text-amber-500 mr-2" />
-          <h1 className="text-xl font-semibold bg-gradient-to-r from-amber-500 to-yellow-600 bg-clip-text text-transparent">
-            Golden Glass AI
-          </h1>
-        </div>
-        <button 
-          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-          className="p-2 rounded-full hover:bg-white/50 transition-colors shadow-sm backdrop-blur-md border border-white/60 text-amber-600"
-          aria-label="Settings"
-        >
-          <Settings2 className="w-5 h-5" />
-        </button>
-      </header>
+    <div className="flex flex-col h-[100dvh] max-w-[100vw] overflow-x-hidden bg-slate-950 text-slate-100 font-sans select-none">
+      {/* 1. Header with branding & status pills */}
+      <Header
+        sandboxStatus={sandboxStatus}
+        githubUser={githubUser}
+        hasGithubToken={Boolean(githubToken)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onBootSandbox={initWebContainer}
+      />
 
-      {/* Settings Panel Overlay */}
-      {isSettingsOpen && (
-        <div className="absolute top-[65px] left-0 right-0 z-10 p-4 bg-white/80 backdrop-blur-xl border-b border-white shadow-lg animate-in slide-in-from-top-2">
-          <div className="max-w-4xl mx-auto space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Settings</h2>
-              <button onClick={() => setIsSettingsOpen(false)} className="text-gray-500 hover:text-gray-800"><X className="w-5 h-5" /></button>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-600 block">AI Model</label>
-              <select 
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="w-full p-2.5 rounded-xl bg-white/50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm shadow-inner transition-all"
-              >
-                {FREE_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-600 block">System Instructions</label>
-              <textarea 
-                value={systemInstruction}
-                onChange={(e) => setSystemInstruction(e.target.value)}
-                rows={3}
-                className="w-full p-3 rounded-xl bg-white/50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm shadow-inner transition-all resize-none"
-                placeholder="Tell the AI how it should behave..."
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Chat Area */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-6">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-70">
-            <div className="p-4 rounded-full bg-white/50 shadow-inner">
-              <Sparkles className="w-12 h-12 text-amber-500" />
-            </div>
-            <p className="text-lg">How can I assist you today?</p>
-            <p className="text-sm text-gray-500 px-8">Using OpenRouter Free Tier. Tap the settings gear to customize model and instructions.</p>
-          </div>
-        )}
-        
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex w-full ${
-              m.role === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
-            <div
-              className={`max-w-[85%] p-4 rounded-2xl shadow-sm backdrop-blur-md border ${
-                m.role === 'user'
-                  ? 'bg-amber-500/10 border-amber-500/20 rounded-br-sm text-gray-900'
-                  : 'bg-white/60 border-white/80 rounded-bl-sm text-gray-800'
-              }`}
+      {/* 2. Main Workspace Layout */}
+      <main className="flex-1 overflow-hidden flex flex-col lg:flex-row min-w-0">
+        {/* DESKTOP LAYOUT (>= 1024px): Dual-pane (Left: Chat, Right: Workspace Tabs) */}
+        {isDesktop ? (
+          <>
+            {/* Left Pane: Chat (40% width) */}
+            <section
+              aria-label="Chat Agent"
+              className="w-[42%] min-w-[380px] max-w-[540px] h-full border-r border-slate-800 flex flex-col shrink-0 overflow-hidden"
             >
-              <div className="flex items-center mb-2 space-x-2">
-                {m.role === 'user' ? (
-                  <>
-                    <User className="w-4 h-4 text-amber-600" />
-                    <span className="text-xs font-medium text-amber-600 uppercase tracking-wider">You</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-yellow-600" />
-                    <span className="text-xs font-medium text-yellow-600 uppercase tracking-wider">AI</span>
-                  </>
-                )}
+              <ChatPanel
+                messages={messages}
+                input={input}
+                handleInputChange={handleInputChange}
+                handleSubmit={handleSubmit}
+                isLoading={isLoading}
+                error={error}
+                onSelectPrompt={handleSelectQuickPrompt}
+                onClearChat={() => setMessages([])}
+                hasGithubToken={Boolean(githubToken)}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+              />
+            </section>
+
+            {/* Right Pane: Workspace Tabs (58% width) */}
+            <section
+              aria-label="Workspace Environment"
+              className="flex-1 h-full flex flex-col min-w-0 overflow-hidden bg-slate-950"
+            >
+              <TabNavigation
+                activeTab={workspaceTab}
+                onTabChange={setWorkspaceTab}
+                previewPort={previewPort}
+                previewActive={Boolean(previewUrl)}
+                terminalRunning={isTerminalRunning}
+                isDesktop={true}
+              />
+              <div className="flex-1 overflow-hidden">
+                {renderTabContent(workspaceTab)}
               </div>
-              <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                {m.content}
-              </div>
-            </div>
-          </div>
-        ))}
-        
-        {/* Error Handling */}
-        {error && (
-          <div className="flex w-full justify-center">
-            <div className="bg-red-500/10 border border-red-500/20 text-red-600 p-3 rounded-xl text-sm font-medium shadow-sm backdrop-blur-md">
-              API ledu ra laude !
+            </section>
+          </>
+        ) : (
+          /* MOBILE LAYOUT (< 1024px): Single Pane with Segmented Navigation */
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <TabNavigation
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              previewPort={previewPort}
+              previewActive={Boolean(previewUrl)}
+              terminalRunning={isTerminalRunning}
+              isDesktop={false}
+            />
+            <div className="flex-1 overflow-hidden">
+              {renderTabContent(activeTab)}
             </div>
           </div>
         )}
-        
-        <div ref={messagesEndRef} />
       </main>
 
-      {/* Input Area */}
-      <footer className="p-4 bg-white/40 backdrop-blur-md border-t border-white/60 z-10">
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-center gap-2 max-w-4xl mx-auto relative"
-        >
-          <input
-            className="flex-1 p-4 pr-14 rounded-full bg-white/70 border border-white/80 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white transition-all"
-            value={input}
-            placeholder="Type your message..."
-            onChange={handleInputChange}
-          />
-          <button
-            type="submit"
-            disabled={!input.trim()}
-            className="absolute right-2 p-3 bg-gradient-to-r from-amber-400 to-amber-500 text-white rounded-full shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            aria-label="Send message"
-          >
-            <Send className="w-5 h-5 ml-0.5" />
-          </button>
-        </form>
-      </footer>
+      {/* 3. Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        githubToken={githubToken}
+        tokenStorage={tokenStorage}
+        openrouterKey={openrouterKey}
+        selectedModel={selectedModel}
+        systemInstruction={systemInstruction}
+        onSave={handleSaveSettings}
+        onClearCredentials={() => {
+          setGithubToken('');
+          setOpenrouterKey('');
+          setGithubUser(null);
+        }}
+      />
     </div>
   );
 }

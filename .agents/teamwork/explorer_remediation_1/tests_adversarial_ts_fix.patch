@@ -1,0 +1,29 @@
+--- a/tests/adversarial/adversarial_challenge.test.ts
++++ b/tests/adversarial/adversarial_challenge.test.ts
+@@ -415,7 +415,7 @@
+ 
+     let serverReadyPort = 0;
+     let serverReadyUrl = '';
+-    harness.onServerReady((port, url) => {
++    harness.onServerReady((port: number, url: string) => {
+       serverReadyPort = port;
+       serverReadyUrl = url;
+     });
+@@ -535,7 +535,7 @@
+ 
+     let totalChunks = 0;
+     let accumulatedText = '';
+-    proc.onOutput((chunk) => {
++    proc.onOutput((chunk: string) => {
+       totalChunks++;
+       accumulatedText += chunk;
+     });
+@@ -699,7 +699,7 @@
+       await harness.writeFile(`quick_${i}.js`, `console.log('PROC_${i}');`);
+       const proc = await harness.spawn('node', [`quick_${i}.js`]);
+       let out = '';
+-      proc.onOutput((chunk) => { out += chunk; });
++      proc.onOutput((chunk: string) => { out += chunk; });
+       const code = await proc.exit;
+       assert.strictEqual(code, 0);
+       assert.ok(out.includes(`PROC_${i}`));
